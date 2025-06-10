@@ -32,6 +32,16 @@ async function run() {
     const db = client.db("whereIsItDB");
     const itemsCollection = db.collection("items");
 
+    // ✅ Get All Items Route
+    app.get("/allItems", async (req, res) => {
+      try {
+        const allItems = await itemsCollection.find().toArray();
+        res.send(allItems);
+      } catch (err) {
+        res.status(500).send({ message: "Failed to fetch items", error: err });
+      }
+    });
+
     // ✅ Add Item Route
     app.post("/addItems", async (req, res) => {
       const item = req.body;
