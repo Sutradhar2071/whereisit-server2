@@ -42,6 +42,30 @@ async function run() {
       }
     });
 
+    // GET /items?sort=date_desc&limit=6
+    app.get("/items", async (req, res) => {
+      try {
+        const sortParam = req.query.sort;
+        const limit = parseInt(req.query.limit) || 0;
+
+        let sortOption = {};
+        if (sortParam === "date_desc") {
+          sortOption = { date: -1 }; // latest date first
+        }
+
+        const items = await itemsCollection
+          .find()
+          .sort(sortOption)
+          .limit(limit)
+          .toArray();
+
+        res.send(items);
+      } catch (error) {
+        console.error("Error fetching sorted/limited items:", error);
+        res.status(500).send({ message: "Failed to fetch items", error });
+      }
+    });
+
     // get item by id
     app.get("/items/:id", async (req, res) => {
       const id = req.params.id;
