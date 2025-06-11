@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config(); // Load .env variables
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -32,7 +32,7 @@ async function run() {
     const db = client.db("whereIsItDB");
     const itemsCollection = db.collection("items");
 
-    // ✅ Get All Items Route
+    // --- All routes ---
     app.get("/allItems", async (req, res) => {
       try {
         const allItems = await itemsCollection.find().toArray();
@@ -42,7 +42,7 @@ async function run() {
       }
     });
 
-    // ✅ Add Item Route
+    // Post item route
     app.post("/addItems", async (req, res) => {
       const item = req.body;
       try {
@@ -53,6 +53,29 @@ async function run() {
         });
       } catch (err) {
         res.status(500).send({ message: "Failed to add item", error: err });
+      }
+    });
+
+    // Delete item route:
+    app.delete("/items/:id", async (req, res) => {
+      const id = req.params.id;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ error: "Invalid ID format" });
+      }
+
+      try {
+        const query = { _id: new ObjectId(id) };
+        const result = await itemsCollection.deleteOne(query);
+
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ error: "Item not found" });
+        }
+
+        res.send(result);
+      } catch (error) {
+        console.error("❌ Delete failed:", error);
+        res.status(500).send({ error: "Internal Server Error" });
       }
     });
   } catch (err) {
