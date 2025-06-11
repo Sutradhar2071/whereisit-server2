@@ -42,6 +42,18 @@ async function run() {
       }
     });
 
+    // get item by id
+    app.get("/items/:id", async (req, res) => {
+      const id = req.params.id;
+      const item = await itemsCollection.findOne({ _id: new ObjectId(id) });
+
+      if (!item) {
+        return res.status(404).send({ message: "Item not found" });
+      }
+
+      res.send(item);
+    });
+
     // Post item route
     app.post("/addItems", async (req, res) => {
       const item = req.body;
@@ -53,6 +65,43 @@ async function run() {
         });
       } catch (err) {
         res.status(500).send({ message: "Failed to add item", error: err });
+      }
+    });
+
+    // updated item
+    app.put("/updateItems/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedItem = req.body;
+
+      // Validate ObjectId
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).json({ error: "Invalid ID format" });
+      }
+
+      const filter = { _id: new ObjectId(id) };
+
+      const updateDoc = {
+        $set: {
+          postType: updatedItem.postType,
+          thumbnail: updatedItem.thumbnail,
+          title: updatedItem.title,
+          description: updatedItem.description,
+          category: updatedItem.category,
+          location: updatedItem.location,
+          date: updatedItem.date,
+          contactName: updatedItem.contactName,
+          email: updatedItem.email,
+        },
+      };
+
+      try {
+        const result = await itemsCollection.updateOne(filter, updateDoc);
+
+        // Send modifiedCount in response to match frontend logic
+        res.send({ modifiedCount: result.modifiedCount });
+      } catch (error) {
+        console.error("Update error:", error);
+        res.status(500).json({ error: "Failed to update item." });
       }
     });
 
@@ -74,7 +123,7 @@ async function run() {
 
         res.send(result);
       } catch (error) {
-        console.error("❌ Delete failed:", error);
+        console.error("Delete failed:", error);
         res.status(500).send({ error: "Internal Server Error" });
       }
     });
