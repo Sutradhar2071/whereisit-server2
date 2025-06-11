@@ -31,6 +31,8 @@ async function run() {
 
     const db = client.db("whereIsItDB");
     const itemsCollection = db.collection("items");
+    // MongoDB collections
+    const recoveredItemsCollection = db.collection("recoveredItems");
 
     // --- All routes ---
     app.get("/allItems", async (req, res) => {
@@ -39,6 +41,79 @@ async function run() {
         res.send(allItems);
       } catch (err) {
         res.status(500).send({ message: "Failed to fetch items", error: err });
+      }
+    });
+
+    // Get recovered items by user email
+    app.get("/recoveredItems", async (req, res) => {
+      const email = req.query.email;
+
+      if (!email) {
+        return res.status(400).send({ message: "Email query required" });
+      }
+
+      try {
+        const items = await recoveredItemsCollection
+          .find({ "recoveredBy.email": email })
+          .toArray();
+        res.send(items);
+      } catch (err) {
+        res
+          .status(500)
+          .send({ message: "Failed to fetch recovered items", error: err });
+      }
+    });
+
+    // recoverdItems post
+    app.post("/recoveredItems", async (req, res) => {
+      const recoveredItem = req.body;
+
+      try {
+        // Check if the item is already recovered
+        const existingRecovered = await recoveredItemsCollection.findOne({
+          originalItemId: new ObjectId(recoveredItem.originalItemId),
+        });
+
+        if (existingRecovered) {
+          return res.status(400).send({ message: "Item already recovered" });
+        }
+
+        // Insert recovered item
+        const result = await recoveredItemsCollection.insertOne(recoveredItem);
+
+        // Respond with insertedId to indicate success
+        res.status(201).send({ insertedId: result.insertedId });
+      } catch (error) {
+        console.error("Failed to add recovered item", error);
+        res
+          .status(500)
+          .send({ message: "Failed to add recovered item", error });
+      }
+    });
+
+    // PATCH update item status only
+    app.patch("/items/:id", async (req, res) => {
+      const id = req.params.id;
+      const { status } = req.body;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ error: "Invalid ID format" });
+      }
+
+      try {
+        const result = await itemsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status } }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ error: "Item not found" });
+        }
+
+        res.send({ modifiedCount: result.modifiedCount });
+      } catch (error) {
+        console.error("PATCH error:", error);
+        res.status(500).send({ error: "Internal Server Error" });
       }
     });
 
