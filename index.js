@@ -2,7 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-const cookieParser = require("cookie-parser");
+// const cookieParser = require("cookie-parser");
 const jwt = require('jsonwebtoken');
 
 
@@ -17,15 +17,30 @@ admin.initializeApp({
 const app = express();
 const port = process.env.PORT || 3000;
 
+// // Handle OPTIONS requests
+// app.options('*', cors({
+//   origin: "https://whereisit-61ba5.web.app",
+//   credentials: true,
+//   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+//   allowedHeaders: ["Content-Type", "Authorization"]
+// }));
+
+// Update your CORS middleware configuration
+// app.use(
+//   cors({
+//     origin: "https://whereisit-61ba5.web.app",
+//     credentials: true,
+//     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+//     allowedHeaders: ["Content-Type", "Authorization"]
+//   })
+// );
+
 // Middleware
 app.use(
-  cors({
-    origin: ["http://localhost:5173"],
-    credentials: true,
-  })
+  cors()
 );
 app.use(express.json());
-app.use(cookieParser());
+// app.use(cookieParser());
 
 // JWT creation route
 app.post('/jwt', async (req, res) => {
