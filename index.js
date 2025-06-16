@@ -1,34 +1,68 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const cookieParser = require("cookie-parser");
 const jwt = require('jsonwebtoken');
-const cookieParser = require('cookie-parser');
+
+
+// Firebase Admin SDK
+const admin = require("firebase-admin");
+const serviceAccount = require("./path-to-your-firebase-adminsdk.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// middleware
-app.use(cors({
-  origin: ['http://localhost:5173'],
-  credentials: true
-}));
+// Middleware
+app.use(
+  cors({
+    origin: ["http://localhost:5173"],
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(cookieParser());
 
-// JWT middleware
-const verifyToken = (req, res, next) => {
-  const token = req.cookies?.token;
-  if (!token) {
-    return res.status(401).send({ message: 'Unauthorized' });
+// JWT creation route
+app.post('/jwt', async (req, res) => {
+  const user = req.body;
+  console.log("User received for JWT:", user);
+  console.log("JWT Secret:", process.env.JWT_SECRET ? "FOUND" : "NOT FOUND");
+
+  if (!user || !user.email) {
+    return res.status(400).send({ error: "User email is required to generate token" });
   }
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) {
-      return res.status(401).send({ message: 'Unauthorized' });
-    }
-    req.user = decoded;
+
+  try {
+    const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '1h' });
+    res.send({ token });
+  } catch (error) {
+    console.error("JWT generation error:", error);
+    res.status(500).send({ error: "Failed to generate token" });
+  }
+});
+
+// Firebase verifyToken middleware
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).send({ error: "Unauthorized: No token provided" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.user = decoded; 
     next();
-  });
+  } catch (error) {
+    return res.status(401).send({ error: "Unauthorized: Invalid token" });
+  }
 };
 
 // MongoDB connection
@@ -43,31 +77,18 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
-    console.log("Connected to MongoDB successfully!");
+    // await client.connect();
+    // console.log("Connected to MongoDB successfully!");
 
     const db = client.db("whereIsItDB");
     const itemsCollection = db.collection("items");
     const recoveredItemsCollection = db.collection("recoveredItems");
+
     
-    // Auth related APIs
-    app.post('/jwt', async (req, res) => {
-      const user = req.body;
-      const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '1h' });
-      res
-        .cookie('token', token, {
-          httpOnly: true,
-          secure: false,
-          sameSite: 'strict'
-        })
-        .send({ success: true });
-    });
+    
 
-    app.post('/logout', async (req, res) => {
-      res.clearCookie('token').send({ success: true });
-    });
+    // Protected routes with verifyToken middleware
 
-    // Protected routes
     app.get("/allItems", verifyToken, async (req, res) => {
       try {
         const allItems = await itemsCollection.find().toArray();
@@ -79,13 +100,18 @@ async function run() {
 
     app.get("/recoveredItems", verifyToken, async (req, res) => {
       const email = req.query.email;
-      if (!email) return res.status(400).send({ message: "Email query required" });
+      if (!email)
+        return res.status(400).send({ message: "Email query required" });
 
       try {
-        const items = await recoveredItemsCollection.find({ "recoveredBy.email": email }).toArray();
+        const items = await recoveredItemsCollection
+          .find({ "recoveredBy.email": email })
+          .toArray();
         res.send(items);
       } catch (err) {
-        res.status(500).send({ message: "Failed to fetch recovered items", error: err });
+        res
+          .status(500)
+          .send({ message: "Failed to fetch recovered items", error: err });
       }
     });
 
@@ -95,32 +121,38 @@ async function run() {
         const existingRecovered = await recoveredItemsCollection.findOne({
           originalItemId: new ObjectId(recoveredItem.originalItemId),
         });
-        if (existingRecovered) return res.status(400).send({ message: "Item already recovered" });
+        if (existingRecovered)
+          return res.status(400).send({ message: "Item already recovered" });
 
         const result = await recoveredItemsCollection.insertOne(recoveredItem);
         res.status(201).send({ insertedId: result.insertedId });
       } catch (error) {
-        res.status(500).send({ message: "Failed to add recovered item", error });
+        res
+          .status(500)
+          .send({ message: "Failed to add recovered item", error });
       }
     });
 
     app.patch("/items/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const { status } = req.body;
-      if (!ObjectId.isValid(id)) return res.status(400).send({ error: "Invalid ID format" });
+      if (!ObjectId.isValid(id))
+        return res.status(400).send({ error: "Invalid ID format" });
 
       try {
         const result = await itemsCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: { status } }
         );
-        if (result.matchedCount === 0) return res.status(404).send({ error: "Item not found" });
+        if (result.matchedCount === 0)
+          return res.status(404).send({ error: "Item not found" });
         res.send({ modifiedCount: result.modifiedCount });
       } catch (error) {
         res.status(500).send({ error: "Internal Server Error" });
       }
     });
 
+    // Public routes
     app.get("/items", async (req, res) => {
       try {
         const sortParam = req.query.sort;
@@ -128,7 +160,11 @@ async function run() {
         let sortOption = {};
         if (sortParam === "date_desc") sortOption = { date: -1 };
 
-        const items = await itemsCollection.find().sort(sortOption).limit(limit).toArray();
+        const items = await itemsCollection
+          .find()
+          .sort(sortOption)
+          .limit(limit)
+          .toArray();
         res.send(items);
       } catch (error) {
         res.status(500).send({ message: "Failed to fetch items", error });
@@ -137,6 +173,9 @@ async function run() {
 
     app.get("/items/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
+      if (!ObjectId.isValid(id))
+        return res.status(400).send({ error: "Invalid ID format" });
+
       const item = await itemsCollection.findOne({ _id: new ObjectId(id) });
       if (!item) return res.status(404).send({ message: "Item not found" });
       res.send(item);
@@ -146,7 +185,10 @@ async function run() {
       const item = req.body;
       try {
         const result = await itemsCollection.insertOne(item);
-        res.status(201).send({ message: "Item added successfully", insertedId: result.insertedId });
+        res.status(201).send({
+          message: "Item added successfully",
+          insertedId: result.insertedId,
+        });
       } catch (err) {
         res.status(500).send({ message: "Failed to add item", error: err });
       }
@@ -155,7 +197,8 @@ async function run() {
     app.put("/updateItems/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const updatedItem = req.body;
-      if (!ObjectId.isValid(id)) return res.status(400).json({ error: "Invalid ID format" });
+      if (!ObjectId.isValid(id))
+        return res.status(400).json({ error: "Invalid ID format" });
 
       const filter = { _id: new ObjectId(id) };
       const updateDoc = { $set: updatedItem };
@@ -170,17 +213,20 @@ async function run() {
 
     app.delete("/items/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
-      if (!ObjectId.isValid(id)) return res.status(400).send({ error: "Invalid ID format" });
+      if (!ObjectId.isValid(id))
+        return res.status(400).send({ error: "Invalid ID format" });
 
       try {
-        const result = await itemsCollection.deleteOne({ _id: new ObjectId(id) });
-        if (result.deletedCount === 0) return res.status(404).send({ error: "Item not found" });
+        const result = await itemsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        if (result.deletedCount === 0)
+          return res.status(404).send({ error: "Item not found" });
         res.send(result);
       } catch (error) {
         res.status(500).send({ error: "Internal Server Error" });
       }
     });
-
   } catch (err) {
     console.error("Failed to connect:", err);
   }
